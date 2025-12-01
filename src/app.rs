@@ -13,6 +13,7 @@ pub struct TextEditorApp {
     // Поиск / замена
     pub(crate) find_text: String,
     pub(crate) replace_text: String,
+    pub(crate) last_find_count: Option<usize>,
     pub(crate) last_replace_count: Option<usize>,
 
     // Внешний вид
@@ -35,6 +36,7 @@ impl TextEditorApp {
             next_doc_id: 2,
             find_text: String::new(),
             replace_text: String::new(),
+            last_find_count: None,
             last_replace_count: None,
             font_size: 16.0,
             text_color: Color32::from_rgb(230, 230, 230),
@@ -159,23 +161,55 @@ impl TextEditorApp {
     /// Меню "Поиск"
     fn search_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Поиск", |ui| {
+            // --- Блок "Найти" ---
             ui.label("Найти:");
             ui.text_edit_singleline(&mut self.find_text);
 
+            ui.horizontal(|ui| {
+                if ui.button("Найти").clicked() {
+                    let needle = self.find_text.clone();
+
+                    if needle.is_empty() {
+                        self.last_find_count = Some(0);
+                    } else {
+                        // Берём копию текста документа, чтобы избежать любых заимствований
+                        let text = self.current_doc().text.clone();
+                        let count = text.matches(&needle).count();
+                        self.last_find_count = Some(count);
+                    }
+                }
+
+                if let Some(count) = self.last_find_count {
+                    ui.label(format!("Найдено вхождений: {count}"));
+                }
+            });
+
+            ui.separator();
+
+            // --- Блок "Заменить" ---
             ui.label("Заменить на:");
             ui.text_edit_singleline(&mut self.replace_text);
 
-            if ui.button("Заменить всё").clicked() {
-                let needle = self.find_text.clone();
-                let replacement = self.replace_text.clone();
+            ui.horizontal(|ui| {
+                if ui.button("Заменить всё").clicked() {
+                    let needle = self.find_text.clone();
+                    let replacement = self.replace_text.clone();
 
-                let count = self.current_doc_mut().replace_all(&needle, &replacement);
-                self.last_replace_count = Some(count);
-            }
+                    if needle.is_empty() {
+                        self.last_replace_count = Some(0);
+                    } else {
+                        let count = self.current_doc_mut().replace_all(&needle, &replacement);
+                        self.last_replace_count = Some(count);
+                    }
 
-            if let Some(count) = self.last_replace_count {
-                ui.label(format!("Заменено вхождений: {count}"));
-            }
+                    // Закрываем меню, чтобы сразу увидеть изменения
+                    ui.close_menu();
+                }
+
+                if let Some(count) = self.last_replace_count {
+                    ui.label(format!("Заменено вхождений: {count}"));
+                }
+            });
         });
     }
 
@@ -189,8 +223,7 @@ impl TextEditorApp {
 
             ui.horizontal(|ui| {
                 ui.label("Цвет текста:");
-                // 🔧 Вместо кнопки-попапа используем встроенный color picker,
-                // который нормально работает внутри меню.
+                // Встроенный color picker, который нормально работает внутри меню.
                 egui::color_picker::color_picker_color32(
                     ui,
                     &mut self.text_color,
