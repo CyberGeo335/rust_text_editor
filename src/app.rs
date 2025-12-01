@@ -16,6 +16,9 @@ pub struct TextEditorApp {
     pub(crate) last_find_count: Option<usize>,
     pub(crate) last_replace_count: Option<usize>,
 
+    // Окно поиска
+    show_search_window: bool,
+
     // Внешний вид
     pub(crate) font_size: f32,
     pub(crate) text_color: Color32,
@@ -38,6 +41,7 @@ impl TextEditorApp {
             replace_text: String::new(),
             last_find_count: None,
             last_replace_count: None,
+            show_search_window: false,
             font_size: 16.0,
             text_color: Color32::from_rgb(230, 230, 230),
             autosave_interval: Duration::from_secs(60),
@@ -158,58 +162,13 @@ impl TextEditorApp {
         });
     }
 
-    /// Меню "Поиск"
+    /// Меню "Поиск" — только открывает окно поиска/замены
     fn search_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Поиск", |ui| {
-            // --- Блок "Найти" ---
-            ui.label("Найти:");
-            ui.text_edit_singleline(&mut self.find_text);
-
-            ui.horizontal(|ui| {
-                if ui.button("Найти").clicked() {
-                    let needle = self.find_text.clone();
-
-                    if needle.is_empty() {
-                        self.last_find_count = Some(0);
-                    } else {
-                        // Берём копию текста документа, чтобы избежать любых заимствований
-                        let text = self.current_doc().text.clone();
-                        let count = text.matches(&needle).count();
-                        self.last_find_count = Some(count);
-                    }
-                }
-
-                if let Some(count) = self.last_find_count {
-                    ui.label(format!("Найдено вхождений: {count}"));
-                }
-            });
-
-            ui.separator();
-
-            // --- Блок "Заменить" ---
-            ui.label("Заменить на:");
-            ui.text_edit_singleline(&mut self.replace_text);
-
-            ui.horizontal(|ui| {
-                if ui.button("Заменить всё").clicked() {
-                    let needle = self.find_text.clone();
-                    let replacement = self.replace_text.clone();
-
-                    if needle.is_empty() {
-                        self.last_replace_count = Some(0);
-                    } else {
-                        let count = self.current_doc_mut().replace_all(&needle, &replacement);
-                        self.last_replace_count = Some(count);
-                    }
-
-                    // Закрываем меню, чтобы сразу увидеть изменения
-                    ui.close_menu();
-                }
-
-                if let Some(count) = self.last_replace_count {
-                    ui.label(format!("Заменено вхождений: {count}"));
-                }
-            });
+            if ui.button("Найти / Заменить...").clicked() {
+                self.show_search_window = true;
+                ui.close_menu();
+            }
         });
     }
 
@@ -325,6 +284,78 @@ impl eframe::App for TextEditorApp {
             ui.separator();
             self.editor_area(ui);
         });
+
+        // Окно поиска / замены (отдельное, не меню)
+        if self.show_search_window {
+            egui::Window::new("Поиск и замена")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    // --- Найти ---
+                    ui.horizontal(|ui| {
+                        ui.label("Найти:");
+                        ui.text_edit_singleline(&mut self.find_text);
+                    });
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Найти").clicked() {
+                            let needle = self.find_text.clone();
+
+                            if needle.is_empty() {
+                                self.last_find_count = Some(0);
+                            } else {
+                                // Берём копию текста в отдельном блоке, чтобы ограничить заимствование
+                                let text = {
+                                    let doc = self.current_doc();
+                                    doc.text.clone()
+                                };
+                                let count = text.matches(&needle).count();
+                                self.last_find_count = Some(count);
+                            }
+                        }
+
+                        if let Some(count) = self.last_find_count {
+                            ui.label(format!("Найдено вхождений: {count}"));
+                        }
+                    });
+
+                    ui.separator();
+
+                    // --- Заменить ---
+                    ui.horizontal(|ui| {
+                        ui.label("Заменить на:");
+                        ui.text_edit_singleline(&mut self.replace_text);
+                    });
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Заменить всё").clicked() {
+                            let needle = self.find_text.clone();
+                            let replacement = self.replace_text.clone();
+
+                            if needle.is_empty() {
+                                self.last_replace_count = Some(0);
+                            } else {
+                                // Ограничиваем время жизни &mut за счёт отдельного блока
+                                let count = {
+                                    let doc = self.current_doc_mut();
+                                    doc.replace_all(&needle, &replacement)
+                                };
+                                self.last_replace_count = Some(count);
+                            }
+                        }
+
+                        if let Some(count) = self.last_replace_count {
+                            ui.label(format!("Заменено вхождений: {count}"));
+                        }
+                    });
+
+                    ui.separator();
+
+                    if ui.button("Закрыть").clicked() {
+                        self.show_search_window = false;
+                    }
+                });
+        }
 
         // Автосохранение
         self.handle_autosave();
